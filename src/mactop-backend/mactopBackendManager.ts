@@ -192,6 +192,14 @@ export class MactopBackendManager {
   private _healthCheck(port: number): Promise<boolean> {
     return new Promise((resolve) => {
       const req = http.get(`http://127.0.0.1:${port}/metrics`, (res) => {
+        // Non-200 responses (404/500/...) are fatal for the health check;
+        // destroy the socket immediately instead of draining the full response
+        // body, which avoids tens of milliseconds of needless waiting.
+        if (res.statusCode !== 200) {
+          res.destroy();
+          resolve(false);
+          return;
+        }
         res.resume();
         res.on("end", () => resolve(res.statusCode === 200));
         res.on("error", () => resolve(false));

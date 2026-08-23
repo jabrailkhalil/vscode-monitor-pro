@@ -1130,14 +1130,24 @@
 
             // -------- resize observer --------
 
+            // Throttle redraws with requestAnimationFrame so a burst of resize
+            // notifications (window resize / sidebar drag) collapses to at most
+            // one redraw per frame, preventing main-thread jank.
+            let _rafId = null;
             const _resizeObserver = new ResizeObserver(function () {
-                for (const id of ALL_CHART_IDS) {
-                    const c = _charts[id];
-                    if (!c || !c.enabled) continue;
-                    if (state.viewMode[id] === "line" && state.history[id] && state.history[id].length >= 2) {
-                        drawChart(id, state.history[id], colorFor(id));
-                    }
+                if (_rafId !== null) {
+                    cancelAnimationFrame(_rafId);
                 }
+                _rafId = requestAnimationFrame(function () {
+                    _rafId = null;
+                    for (const id of ALL_CHART_IDS) {
+                        const c = _charts[id];
+                        if (!c || !c.enabled) continue;
+                        if (state.viewMode[id] === "line" && state.history[id] && state.history[id].length >= 2) {
+                            drawChart(id, state.history[id], colorFor(id));
+                        }
+                    }
+                });
             });
 
             // -------- initial render --------

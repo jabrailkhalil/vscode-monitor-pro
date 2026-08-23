@@ -262,6 +262,12 @@ class SystemDataProvider {
     const tick = async () => {
       try {
         const data = await this.collect();
+        // Stale-generation guard: if stop()/start() switched generations while
+        // we were awaiting collection, discard this result instead of
+        // overwriting the live snapshot with potentially outdated data.
+        if (gen !== this._gen) {
+          return;
+        }
         this._consecutiveFailures = 0;
         data.unavailableMetrics = this.computeUnavailableMetrics(data);
         this._snapshot = data;

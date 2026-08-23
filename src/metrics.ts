@@ -2,31 +2,26 @@ import os from "os";
 import * as vscode from "vscode";
 import byteFormat from "./byteFormat";
 import { MetricCtrProps } from "./constants";
-import { getDiskSpaceConfig, getUptimeFormat } from "./configuration";
+import {
+  getDiskSpaceConfig,
+  getFormatConfig,
+  getSignificantDigits,
+  getUptimeFormat,
+} from "./configuration";
 import { systemData } from "./systemData";
 import { dedupeFsSize } from "./diskSpace";
 import { getLogger } from "./logger";
 import { formatEstimatedBatteryTime } from "./battery";
 
-let _binary = true;
-let _space = false;
-let _singleUnit = false;
-let _sigDigits: Record<string, number> = {};
-
-export function updateGlobalConfig(
-  binary: boolean,
-  space: boolean,
-  singleUnit: boolean,
-  sigDigits: Record<string, number>,
-) {
-  _binary = binary;
-  _space = space;
-  _singleUnit = singleUnit;
-  _sigDigits = sigDigits;
+function getSigDigits(section: string): number {
+  return getSignificantDigits()[section] ?? 3;
 }
 
-function getSigDigits(section: string): number {
-  return _sigDigits[section] ?? 3;
+// Replaces the former module-level _space global. Reading showSpace live keeps
+// status-bar formatting in sync with config changes on the next tick without
+// any external state-sync call (e.g. the removed updateGlobalConfig).
+function getSpace(): boolean {
+  return getFormatConfig().showSpace;
 }
 
 function fmtSigNum(n: number, sigfigs: number): string {
@@ -41,10 +36,11 @@ function fmtSigNum(n: number, sigfigs: number): string {
 }
 
 const prettySig = (bytes: number, sigfigs: number): string => {
+  const fmt = getFormatConfig();
   return byteFormat(bytes, {
-    binary: _binary,
-    space: _space,
-    single: _singleUnit,
+    binary: fmt.unitSystem === "binary",
+    space: fmt.showSpace,
+    single: fmt.singleUnit,
     minimumSignificantDigits: sigfigs,
     maximumSignificantDigits: sigfigs,
     useGrouping: false,
@@ -54,7 +50,7 @@ const prettySig = (bytes: number, sigfigs: number): string => {
 const cpuText = async () => {
   const sig = getSigDigits("cpu");
   const data = await systemData.getSnapshot();
-  const sp = _space ? " " : "";
+  const sp = getSpace() ? " " : "";
   const val = fmtSigNum(data.currentLoad, sig) + sp + "%";
   getLogger().debug(vscode.l10n.t("CPU load: {0}%", data.currentLoad.toFixed(2)));
   return `$(chip) ${val}`;
@@ -133,7 +129,7 @@ const batteryText = async () => {
     return "";
   }
 
-  const sp = _space ? " " : "";
+  const sp = getSpace() ? " " : "";
   const pct = fmtSigNum(b.percent, sig) + sp + "%";
   const icon = b.isCharging || b.acConnected ? "$(plug)" : "$(symbol-event)";
 
@@ -184,7 +180,7 @@ const cpuSpeedText = async () => {
   if (!cpuCurrentSpeed.avg || cpuCurrentSpeed.avg === 0) {
     return "";
   }
-  const sp = _space ? " " : "";
+  const sp = getSpace() ? " " : "";
   return `$(dashboard) ${fmtSigNum(cpuCurrentSpeed.avg, sig) + sp + "GHz"}`;
 };
 
@@ -205,7 +201,7 @@ const gpuText = async () => {
   getLogger().debug(
     vscode.l10n.t("GPU - Utilization: {0}% across {1} card(s)", avg.toFixed(2), cards.length),
   );
-  const sp = _space ? " " : "";
+  const sp = getSpace() ? " " : "";
   return `$(circuit-board) ${fmtSigNum(avg, sig) + sp + "%"}`;
 };
 
@@ -222,7 +218,7 @@ const gpuTempText = async () => {
   getLogger().debug(
     vscode.l10n.t("GPU - Max temperature: {0}°C", maxTemp.toFixed(2)),
   );
-  const sp = _space ? " " : "";
+  const sp = getSpace() ? " " : "";
   return `$(lightbulb-sparkle) ${fmtSigNum(maxTemp, sig) + sp + "°C"}`;
 };
 
@@ -261,7 +257,7 @@ const cpuTempText = async () => {
   if (!cl.main) {
     return "";
   }
-  const sp = _space ? " " : "";
+  const sp = getSpace() ? " " : "";
   return `$(flame) ${fmtSigNum(cl.main, sig) + sp + "°C"}`;
 };
 
@@ -289,7 +285,7 @@ const diskSpaceText = async () => {
       getLogger().warn(vscode.l10n.t("Disk {0} has size=0, skipping", disk.mount));
       return null;
     }
-    const sp = _space ? " " : "";
+    const sp = getSpace() ? " " : "";
     const pctVal = fmtSigNum((used / total) * 100, sig) + sp + "%";
     return `$(database)${disk.mount} ${pctVal} ${prettySig(used, sig)}/${prettySig(total, sig)}`;
   };

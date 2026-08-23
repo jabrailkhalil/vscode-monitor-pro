@@ -11,17 +11,12 @@ import {
 import { ResourceUsageProvider } from "./resourceUsageProvider";
 import { getRefreshInterval, isConfigChanged } from "./configuration";
 import { Metric, getEnabledMetrics } from "./metricsInit";
-import { updateGlobalConfig } from "./metrics";
 import { systemData } from "./systemData";
 import { GoBackendManager } from "./goBackend";
 import { GoDataSource, SIDataSource } from "./dataSource";
 import { MactopBackendManager } from "./mactop-backend/mactopBackendManager";
 import { MactopDataSource } from "./mactop-backend/mactopDataSource";
 import {
-  getUnitSystem,
-  getShowSpace,
-  getSingleUnit,
-  getSignificantDigits,
   getMetricsEnabled,
   getResourceUsageConfig,
 } from "./configuration";
@@ -108,16 +103,6 @@ function shouldUseGoBackend(): boolean {
  */
 function shouldUseMactopBackend(): boolean {
   return process.platform === "darwin" && process.arch === "arm64";
-}
-
-function applyFormatConfig() {
-  const unitSystem = getUnitSystem();
-  updateGlobalConfig(
-    unitSystem === "binary",
-    getShowSpace(),
-    getSingleUnit(),
-    getSignificantDigits(),
-  );
 }
 
 function rebuildMetrics() {
@@ -301,7 +286,6 @@ export const activate = async (ctx: ExtensionContext) => {
   initLogger("Monitor Pro");
   getLogger().info(l10n.t("Extension activating"));
 
-  applyFormatConfig();
   rebuildMetrics();
   getLogger().info(
     l10n.t("Platform: {0}, Architecture: {1}", process.platform, process.arch),
@@ -346,16 +330,6 @@ export const activate = async (ctx: ExtensionContext) => {
       }
 
       getLogger().info(l10n.t("Configuration changed, hot-reloading"));
-
-      if (
-        event.affectsConfiguration("monitor-pro.unitSystem") ||
-        event.affectsConfiguration("monitor-pro.showSpace") ||
-        event.affectsConfiguration("monitor-pro.singleUnit") ||
-        event.affectsConfiguration("monitor-pro.significantDigits")
-      ) {
-        applyFormatConfig();
-        getLogger().debug(l10n.t("Format config updated"));
-      }
 
       if (event.affectsConfiguration("monitor-pro.refresh-interval")) {
         systemData.setInterval(getRefreshInterval());

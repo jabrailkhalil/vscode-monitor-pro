@@ -91,6 +91,15 @@ export class GoBackendManager {
           data += chunk.toString();
         });
         res.on("end", () => {
+          const contentType = res.headers["content-type"] || "";
+          if (!contentType.includes("application/json")) {
+            reject(
+              new Error(
+                `Expected JSON response but got content-type: ${contentType || "none"}`,
+              ),
+            );
+            return;
+          }
           try {
             const parsed = JSON.parse(data);
             if (parsed.success) {

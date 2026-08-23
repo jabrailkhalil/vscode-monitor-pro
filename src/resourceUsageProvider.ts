@@ -52,6 +52,65 @@ function formatUptime(seconds: number, format: string): string {
   return parts.join(" ");
 }
 
+/**
+ * Build the secondary battery line for the webview.
+ *
+ * Split out of _formatPayload to keep the (deeply nested) mactop vs. generic
+ * battery branching in a single place; it is reused for the batteryPower
+ * subtitle. `isMactop` is the already-computed data-source flag so the caller
+ * does not re-evaluate systemData.sourceName here.
+ */
+function formatBatterySubtitle(
+  battery: TextMetrics["battery"],
+  isMactop: boolean,
+): string {
+  if (!battery.hasBattery) {
+    return isMactop && battery.powerRate !== 0
+      ? vscode.l10n.t("SoC Power")
+      : "";
+  }
+
+  const stateText =
+    battery.powerState === "charging"
+      ? vscode.l10n.t("Charging")
+      : battery.powerState === "discharging"
+        ? vscode.l10n.t("Discharging")
+        : vscode.l10n.t("Idle");
+
+  if (isMactop) {
+    // timeRemaining comes from SI.battery(), which on macOS is provided by
+    // IOPMPowerSources. When the device is plugged in but not charging (e.g. a
+    // charge limit is set), this value may return stale cached data, so it
+    // should not be shown in idle or full states.
+    if (
+      (battery.powerState === "charging" ||
+        battery.powerState === "discharging") &&
+      battery.timeRemaining > 0 &&
+      battery.timeRemaining < 2880
+    ) {
+      const h = Math.floor(battery.timeRemaining / 60);
+      const m = Math.round(battery.timeRemaining % 60);
+      const timeStr =
+        battery.powerState === "charging"
+          ? vscode.l10n.t("{0}h {1}m until full", h, m)
+          : vscode.l10n.t("{0}h {1}m until empty", h, m);
+      return `${stateText} · ${timeStr}`;
+    }
+    return stateText;
+  }
+
+  const estTime =
+    battery.powerState === "charging" || battery.powerState === "discharging"
+      ? formatEstimatedBatteryTime(
+          battery.powerRate,
+          battery.maxCapacity,
+          battery.currentCapacity,
+          battery.powerState === "charging",
+        )
+      : "";
+  return estTime ? `${stateText} · ${estTime}` : stateText;
+}
+
 export class ResourceUsageProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = "monitor-pro.resourceUsage";
   private _view?: vscode.WebviewView;
@@ -193,6 +252,7 @@ export class ResourceUsageProvider implements vscode.WebviewViewProvider {
       });
 
     const t = textMetrics;
+    const isMactop = systemData.sourceName === "mactop";
 
     return {
       history: data.history,
@@ -226,7 +286,7 @@ export class ResourceUsageProvider implements vscode.WebviewViewProvider {
           ? fmtNum(t.battery.percent, sigDigits.battery) + sp + "%"
           : vscode.l10n.t("N/A"),
         batteryPower: (() => {
-          if (systemData.sourceName === "mactop") {
+          if (isMactop) {
             // mactop SoC power is always non-negative, so show it even without a battery
             return t.battery.powerRate !== 0
               ? fmtNum(t.battery.powerRate, sigDigits.battery) + sp + "W"
@@ -272,59 +332,10 @@ export class ResourceUsageProvider implements vscode.WebviewViewProvider {
       formattedText: {
         batterySub: t.battery.hasBattery
           ? `${vscode.l10n.t("Health")}: ${fmtNum(t.battery.health, sigDigits.battery)}${sp}%`
-          : systemData.sourceName === "mactop" && t.battery.powerRate !== 0
+          : isMactop && t.battery.powerRate !== 0
             ? vscode.l10n.t("SoC Power")
             : "",
-        batteryPowerSub: t.battery.hasBattery
-          ? (() => {
-              const stateText =
-                t.battery.powerState === "charging"
-                  ? vscode.l10n.t("Charging")
-                  : t.battery.powerState === "discharging"
-                    ? vscode.l10n.t("Discharging")
-                    : vscode.l10n.t("Idle");
-              // For the mactop data source, powerRate is total SoC power, not
-              // battery charge/discharge rate, so it cannot be used to compute
-              // remaining charge/discharge time. Use the system-provided
-              // timeRemaining instead.
-              const isMactop = systemData.sourceName === "mactop";
-              if (isMactop) {
-                // timeRemaining comes from SI.battery(), which on macOS is
-                // provided by IOPMPowerSources. When the device is plugged in
-                // but not charging (e.g. a charge limit is set), this value may
-                // return stale cached data, so it should not be shown in idle
-                // or full states.
-                if (
-                  (t.battery.powerState === "charging" ||
-                    t.battery.powerState === "discharging") &&
-                  t.battery.timeRemaining > 0 &&
-                  t.battery.timeRemaining < 2880
-                ) {
-                  const h = Math.floor(t.battery.timeRemaining / 60);
-                  const m = Math.round(t.battery.timeRemaining % 60);
-                  const timeStr =
-                    t.battery.powerState === "charging"
-                      ? vscode.l10n.t("{0}h {1}m until full", h, m)
-                      : vscode.l10n.t("{0}h {1}m until empty", h, m);
-                  return `${stateText} · ${timeStr}`;
-                }
-                return stateText;
-              }
-              const estTime =
-                t.battery.powerState === "charging" ||
-                t.battery.powerState === "discharging"
-                  ? formatEstimatedBatteryTime(
-                      t.battery.powerRate,
-                      t.battery.maxCapacity,
-                      t.battery.currentCapacity,
-                      t.battery.powerState === "charging",
-                    )
-                  : "";
-              return estTime ? `${stateText} · ${estTime}` : stateText;
-            })()
-          : systemData.sourceName === "mactop" && t.battery.powerRate !== 0
-            ? vscode.l10n.t("SoC Power")
-            : "",
+        batteryPowerSub: formatBatterySubtitle(t.battery, isMactop),
         cpuTempSub: "",
         cpuSpeedSub:
           t.cpuSpeed.avg > 0
