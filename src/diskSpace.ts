@@ -14,9 +14,9 @@ export type FsSizeEntry = SystemSnapshot["fsSize"][number];
  *
  * The deduplication key is `fs` (the device source, e.g. /dev/nvme0n1p2,
  * overlay, tmpfs); if `fs` is empty it falls back to `mount`.
- * Within each group the representative mount is chosen by shortest mount path
- * (so / wins over /@ and /home wins over /@home), breaking ties by largest
- * size.
+ * Within each group the representative is chosen by largest `used` value
+ * (so the data volume wins over the system volume on macOS APFS), breaking
+ * ties by shortest mount path.
  *
  * Result: one row per physical disk and per virtual filesystem. Windows drive
  * letters are naturally unique, so deduplication is a no-op there.
@@ -68,13 +68,15 @@ export function dedupeFsSize(rows: FsSizeEntry[]): FsSizeEntry[] {
       result.push(bucket[0]);
       continue;
     }
-    // Prefer the shortest mount path; on ties pick the largest size.
+    // Prefer the entry with the largest used value so that on macOS APFS the
+    // data volume (/System/Volumes/Data) wins over the system volume (/),
+    // which only reflects OS files. On ties pick the shortest mount path.
     let best = bucket[0];
     for (let i = 1; i < bucket.length; i++) {
       const cur = bucket[i];
       if (
-        cur.mount.length < best.mount.length ||
-        (cur.mount.length === best.mount.length && cur.size > best.size)
+        cur.used > best.used ||
+        (cur.used === best.used && cur.mount.length < best.mount.length)
       ) {
         best = cur;
       }
